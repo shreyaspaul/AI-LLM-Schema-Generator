@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Schema Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 20px;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+            max-width: 700px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #f1f5f9;
+            margin-bottom: 10px;
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            margin-bottom: 30px;
+            font-size: 0.95rem;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            color: #e2e8f0;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #0f172a;
+            color: #f1f5f9;
+            border: 2px solid #334155;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        input::placeholder {
+            color: #64748b;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #475569;
+            background: #0a0f1a;
+            box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.1);
+        }
+
+        .button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #475569 0%, #334155 100%);
+            color: #f1f5f9;
+            border: 1px solid #475569;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            background: linear-gradient(135deg, #52667a 0%, #3e4a5f 100%);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+            border-color: #64748b;
+        }
+
+        .button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .progress-container {
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 10px;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-title {
+            font-weight: 600;
+            color: #e2e8f0;
+            margin-bottom: 15px;
+        }
+
+        .progress-messages {
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            background: #1e293b;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #334155;
+        }
+
+        .progress-message {
+            padding: 8px 0;
+            border-bottom: 1px solid #334155;
+            color: #94a3b8;
+        }
+
+        .progress-message:last-child {
+            border-bottom: none;
+        }
+
+        .progress-message.info {
+            color: #60a5fa;
+        }
+
+        .progress-message.warn {
+            color: #fbbf24;
+        }
+
+        .progress-message.error {
+            color: #f87171;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-top: 15px;
+        }
+
+        .status-badge.running {
+            background: rgba(96, 165, 250, 0.2);
+            color: #60a5fa;
+            border: 1px solid rgba(96, 165, 250, 0.3);
+        }
+
+        .status-badge.completed {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+            border: 1px solid rgba(74, 222, 128, 0.3);
+        }
+
+        .status-badge.failed {
+            background: rgba(248, 113, 113, 0.2);
+            color: #f87171;
+            border: 1px solid rgba(248, 113, 113, 0.3);
+        }
+
+        .error-message {
+            display: none;
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(248, 113, 113, 0.1);
+            border-left: 4px solid #f87171;
+            border-radius: 4px;
+            color: #f87171;
+        }
+
+        .error-message.active {
+            display: block;
+        }
+
+        .api-notice {
+            background: rgba(251, 191, 36, 0.15);
+            border-left: 4px solid #fbbf24;
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            font-size: 0.9rem;
+            color: #fbbf24;
+        }
+
+        .api-notice a {
+            color: #fcd34d;
+            text-decoration: underline;
+            font-weight: 600;
+        }
+
+        .api-notice a:hover {
+            color: #fbbf24;
+        }
+
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .toggle-checkbox {
+            width: auto;
+            margin-right: 10px;
+            cursor: pointer;
+            transform: scale(1.2);
+        }
+
+        .toggle-text {
+            color: #e2e8f0;
+            font-weight: 500;
+        }
+
+        .api-key-container {
+            margin-top: 12px;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .api-key-input {
+            margin-bottom: 8px;
+        }
+
+        .api-key-hint {
+            display: block;
+            color: #64748b;
+            font-size: 0.85rem;
+            margin-top: 5px;
+        }
+
+        .features-section {
+            margin-top: 40px;
+            padding-top: 40px;
+            border-top: 1px solid #334155;
+        }
+
+        .features-title {
+            color: #f1f5f9;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            letter-spacing: -0.5px;
+        }
+
+        .feature-item {
+            margin-bottom: 25px;
+            padding: 20px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            transition: all 0.3s;
+        }
+
+        .feature-item:hover {
+            border-color: #475569;
+            transform: translateY(-2px);
+        }
+
+        .feature-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .feature-icon {
+            font-size: 1.5rem;
+            margin-right: 12px;
+        }
+
+        .feature-title {
+            color: #e2e8f0;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .feature-description {
+            color: #94a3b8;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        .feature-description strong {
+            color: #cbd5e1;
+            font-weight: 600;
+        }
+
+        .use-cases {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(148, 163, 184, 0.05);
+            border-left: 4px solid #60a5fa;
+            border-radius: 8px;
+        }
+
+        .use-cases-title {
+            color: #60a5fa;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .use-case-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .use-case-list li {
+            color: #94a3b8;
+            font-size: 0.9rem;
+            line-height: 1.8;
+            padding-left: 24px;
+            position: relative;
+            margin-bottom: 10px;
+        }
+
+        .use-case-list li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #60a5fa;
+            font-weight: bold;
+        }
+
+        .collapsible {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .collapsible-content.open {
+            max-height: 2000px;
+            transition: max-height 0.5s ease-in;
+        }
+
+        .toggle-arrow {
+            display: inline-block;
+            transition: transform 0.3s;
+            margin-left: 8px;
+        }
+
+        .collapsible.active .toggle-arrow {
+            transform: rotate(90deg);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 AI Schema Generator</h1>
+        <p class="subtitle">Generate detailed JSON-LD schema markup for any website</p>
+
+        <div class="api-notice">
+            <strong>⚠️ Free API Support Ending Soon:</strong> This tool will require your own OpenAI API key starting in approximately 14 days. The app is <a href="https://github.com" target="_blank">open source</a> and can be cloned to run with your own API key.
+        </div>
+
+        <form id="crawlForm">
+            <div class="form-group">
+                <label for="websiteUrl">Website URL</label>
+                <input 
+                    type="url" 
+                    id="websiteUrl" 
+                    placeholder="https://example.com" 
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="maxPages">Max Pages (optional)</label>
+                <input 
+                    type="number" 
+                    id="maxPages" 
+                    placeholder="10" 
+                    min="1" 
+                    max="500"
+                    value="10"
+                >
+            </div>
+
+            <div class="form-group">
+                <label class="toggle-label">
+                    <input type="checkbox" id="useOwnApi" class="toggle-checkbox">
+                    <span class="toggle-text">Use my own OpenAI API key</span>
+                </label>
+                <div class="api-key-container" id="apiKeyContainer" style="display: none;">
+                    <input 
+                        type="password" 
+                        id="apiKey" 
+                        placeholder="sk-proj-..." 
+                        class="api-key-input"
+                    >
+                    <small class="api-key-hint">Your API key is sent directly to OpenAI and never stored on our servers.</small>
+                </div>
+            </div>
+
+            <button type="submit" class="button" id="submitBtn">
+                Generate Schema
+            </button>
+        </form>
+
+        <div class="error-message" id="errorMessage"></div>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-title">Progress:</div>
+            <div class="progress-messages" id="progressMessages"></div>
+            <div class="status-badge running" id="statusBadge">Running...</div>
+        </div>
+
+        <div class="features-section">
+            <div class="collapsible" id="featuresToggle">
+                <h2 class="features-title">
+                    Why This Generator?
+                    <span class="toggle-arrow">▶</span>
+                </h2>
+            </div>
+            
+            <div class="collapsible-content" id="featuresContent">
+                <div class="feature-item">
+                    <div class="feature-header">
+                        <span class="feature-icon">🧠</span>
+                        <h3 class="feature-title">AI-Powered Intelligence</h3>
+                    </div>
+                    <p class="feature-description">
+                        Unlike generic schema generators, this tool uses advanced AI to <strong>understand your content context</strong> and generate highly accurate, detailed JSON-LD markup. It analyzes page structure, content type, and visual hierarchy to create schema that actually matches your pages—not just generic templates.
+                    </p>
+                </div>
+
+                <div class="feature-item">
+                    <div class="feature-header">
+                        <span class="feature-icon">⚡</span>
+                        <h3 class="feature-title">Save Hours on Large Sites</h3>
+                    </div>
+                    <p class="feature-description">
+                        Manually creating schema for hundreds of pages? That's days of work. This tool <strong>crawls your entire site automatically</strong>, generates accurate schema for each page, and delivers everything in minutes. What used to take weeks now takes hours—or less.
+                    </p>
+                </div>
+
+                <div class="feature-item">
+                    <div class="feature-header">
+                        <span class="feature-icon">🎯</span>
+                        <h3 class="feature-title">Ready for AEO & GEO</h3>
+                    </div>
+                    <p class="feature-description">
+                        As Google moves toward <strong>AI Engine Optimization (AEO) and Generative Engine Optimization (GEO)</strong>, properly structured schema markup becomes critical. This generator creates comprehensive, AI-friendly markup that helps search engines understand and present your content more effectively in AI-powered search results.
+                    </p>
+                </div>
+
+                <div class="feature-item">
+                    <div class="feature-header">
+                        <span class="feature-icon">🤖</span>
+                        <h3 class="feature-title">Automation & Integration</h3>
+                    </div>
+                    <p class="feature-description">
+                        Built with automation in mind. Use the API with <strong>Webflow MCP</strong> to automatically add schema to your pages, integrate with n8n workflows, or connect to your existing CI/CD pipeline. Set it once, and keep your schema updated as your site grows.
+                    </p>
+                </div>
+
+                <div class="use-cases">
+                    <div class="use-cases-title">💡 Popular Use Cases:</div>
+                    <ul class="use-case-list">
+                        <li>Integrate with <strong>Webflow MCP</strong> to automatically inject schema into your Webflow pages</li>
+                        <li>Use with <strong>n8n or Zapier</strong> to generate schema on every site update</li>
+                        <li>Prepare e-commerce sites for <strong>Google Shopping</strong> and rich results</li>
+                        <li>Optimize content sites for <strong>Google's AI Overview</strong> and featured snippets</li>
+                        <li>Audit and update schema across entire site architectures</li>
+                        <li>Generate schema for <strong>local businesses</strong> ready for Google Business Profile integration</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('crawlForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressMessages = document.getElementById('progressMessages');
+        const statusBadge = document.getElementById('statusBadge');
+        const errorMessage = document.getElementById('errorMessage');
+        const useOwnApiCheckbox = document.getElementById('useOwnApi');
+        const apiKeyContainer = document.getElementById('apiKeyContainer');
+        const apiKeyInput = document.getElementById('apiKey');
+
+        // Get API URL (defaults to current host)
+        const API_URL = window.location.origin;
+
+        // Toggle API key input visibility
+        useOwnApiCheckbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                apiKeyContainer.style.display = 'block';
+                apiKeyInput.required = true;
+            } else {
+                apiKeyContainer.style.display = 'none';
+                apiKeyInput.required = false;
+                apiKeyInput.value = '';
+            }
+        });
+
+        // Toggle features section
+        const featuresToggle = document.getElementById('featuresToggle');
+        const featuresContent = document.getElementById('featuresContent');
+        
+        featuresToggle.addEventListener('click', () => {
+            featuresToggle.classList.toggle('active');
+            featuresContent.classList.toggle('open');
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const websiteUrl = document.getElementById('websiteUrl').value;
+            const maxPages = parseInt(document.getElementById('maxPages').value) || 10;
+            const useOwnApi = useOwnApiCheckbox.checked;
+            const apiKey = useOwnApi ? apiKeyInput.value.trim() : null;
+
+            // Validate API key if using own
+            if (useOwnApi && !apiKey) {
+                showError('Please enter your OpenAI API key');
+                return;
+            }
+
+            if (useOwnApi && !apiKey.startsWith('sk-')) {
+                showError('Invalid API key format. OpenAI API keys start with "sk-"');
+                return;
+            }
+
+            // Reset UI
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Starting...';
+            progressContainer.classList.add('active');
+            progressMessages.innerHTML = '';
+            errorMessage.classList.remove('active');
+            statusBadge.className = 'status-badge running';
+            statusBadge.textContent = 'Running...';
+
+            try {
+                // Step 1: Start crawl job
+                const requestBody = {
+                    base_url: websiteUrl,
+                    max_pages: maxPages
+                };
+
+                // Add API key only if user provided their own
+                if (useOwnApi && apiKey) {
+                    requestBody.api_key = apiKey;
+                }
+
+                const startResponse = await fetch(`${API_URL}/crawl/async`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!startResponse.ok) {
+                    const error = await startResponse.json();
+                    throw new Error(error.error || 'Failed to start crawl');
+                }
+
+                const { job_id } = await startResponse.json();
+                addProgressMessage('info', `Job started: ${job_id.substring(0, 8)}...`);
+
+                // Step 2: Poll for status
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusResponse = await fetch(`${API_URL}/crawl/status/${job_id}`);
+                        const status = await statusResponse.json();
+
+                        // Update progress messages
+                        const currentCount = progressMessages.children.length;
+                        if (status.progress && status.progress.length > currentCount) {
+                            status.progress.slice(currentCount).forEach(msg => {
+                                addProgressMessage(msg.type, msg.message);
+                            });
+                        }
+
+                        // Update status badge
+                        if (status.status === 'completed') {
+                            clearInterval(pollInterval);
+                            statusBadge.className = 'status-badge completed';
+                            statusBadge.textContent = 'Completed!';
+                            
+                            // Step 3: Download ZIP
+                            downloadResult(job_id);
+                        } else if (status.status === 'failed') {
+                            clearInterval(pollInterval);
+                            statusBadge.className = 'status-badge failed';
+                            statusBadge.textContent = 'Failed';
+                            showError(status.error || 'Job failed');
+                            resetButton();
+                        }
+                    } catch (error) {
+                        clearInterval(pollInterval);
+                        showError(`Polling error: ${error.message}`);
+                        resetButton();
+                    }
+                }, 3000); // Poll every 3 seconds
+
+                // Timeout after 10 minutes
+                setTimeout(() => {
+                    clearInterval(pollInterval);
+                    showError('Job timed out after 10 minutes');
+                    resetButton();
+                }, 600000);
+
+            } catch (error) {
+                showError(error.message);
+                resetButton();
+            }
+        });
+
+        function addProgressMessage(type, message) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `progress-message ${type}`;
+            msgDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            progressMessages.appendChild(msgDiv);
+            progressMessages.scrollTop = progressMessages.scrollHeight;
+        }
+
+        function downloadResult(jobId) {
+            addProgressMessage('info', 'Downloading ZIP file...');
+            
+            fetch(`${API_URL}/crawl/result/${jobId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to download result');
+                    }
+                    return response.blob();
+                })
+                .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `schema_output_${new Date().getTime()}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    
+                    addProgressMessage('info', '✓ ZIP file downloaded successfully!');
+                    resetButton();
+                })
+                .catch(error => {
+                    showError(`Download error: ${error.message}`);
+                    resetButton();
+                });
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('active');
+        }
+
+        function resetButton() {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Generate Schema';
+        }
+    </script>
+</body>
+</html>
+

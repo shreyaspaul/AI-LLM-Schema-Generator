@@ -113,7 +113,7 @@ Get the ZIP file for a completed job. Returns 202 if still running, 404 if not f
   "rate_limit": 1.0,  // Optional, default 0.5
   "timeout": 30,  // Optional, default 20
   "allow_subdomains": false,  // Optional
-  "model": "gpt-4o-mini",  // Optional
+  "model": "gpt-4o",  // Optional, default: gpt-4o (vision-capable)
   "api_key": "sk-..."  // Optional, overrides env var
 }
 ```
@@ -192,7 +192,7 @@ Open `test_stream.html` in your browser for a ready-made UI to test the streamin
 - `--rate-limit` (default: 0.5): Seconds to wait between requests
 - `--timeout` (default: 20): Request timeout in seconds
 - `--allow-subdomains` (flag): Also crawl subdomains
-- `--model` (default: `gpt-4o-mini`): OpenAI model (auto-upgrades to gpt-4o for vision)
+- `--model` (default: `gpt-4o`): OpenAI model (default: gpt-4o with vision capabilities)
 - `--api-key` (optional): Override API key
 - `--config` (optional): Path to project config JSON
 - `--save-outline` (flag): Save structured outline analysis files

@@ -13,7 +13,6 @@ from typing import Dict, List, Optional, Set, Tuple
 import requests
 from bs4 import BeautifulSoup
 import html as ihtml
-from readability import Document
 from slugify import slugify
 from dotenv import load_dotenv
 from colorama import Fore, Style, init as colorama_init
@@ -161,8 +160,70 @@ def parse_sitemap_for_urls(sitemap_xml: str) -> List[str]:
 	return urls
 
 
+def extract_hidden_and_faq_content(soup: BeautifulSoup) -> str:
+	"""Extract text from hidden/collapsed elements and FAQ structures that might be missed."""
+	extracted = []
+	
+	# Extract FAQ structures (dl/dt/dd)
+	for dl in soup.find_all("dl"):
+		faq_text = []
+		dt_tags = dl.find_all("dt", recursive=False)
+		dd_tags = dl.find_all("dd", recursive=False)
+		for i, dt in enumerate(dt_tags):
+			q = dt.get_text(" ", strip=True)
+			if q:
+				faq_text.append(f"Q: {q}")
+			if i < len(dd_tags):
+				a = dd_tags[i].get_text(" ", strip=True)
+				if a:
+					faq_text.append(f"A: {a}")
+		if faq_text:
+			extracted.append("\n".join(faq_text))
+	
+	# Extract from common FAQ/accordion class patterns (even if hidden)
+	faq_patterns = [
+		r"faq", r"accordion", r"question", r"answer", r"collapse",
+		r"expandable", r"toggle", r"panel", r"item"
+	]
+	for pattern in faq_patterns:
+		for elem in soup.find_all(class_=re.compile(pattern, re.I)):
+			text = elem.get_text(" ", strip=True)
+			if text and len(text) > 10:  # Ignore very short matches
+				extracted.append(text)
+	
+	# Extract from data attributes commonly used for hidden content
+	for elem in soup.find_all(attrs={"data-content": True}):
+		text = elem.get("data-content", "").strip()
+		if text:
+			extracted.append(text)
+	
+	# Extract from aria-hidden="false" elements (accessible but might be visually hidden)
+	for elem in soup.find_all(attrs={"aria-hidden": "false"}):
+		text = elem.get_text(" ", strip=True)
+		if text:
+			extracted.append(text)
+	
+	# Extract from elements with common hidden content patterns
+	# Look for divs/spans with FAQ-like content even if they have height:0 styling
+	# We check the HTML directly for these patterns before CSS filtering
+	for elem in soup.find_all(["div", "section", "article"]):
+		# Check for common FAQ/question/answer text patterns in class/id
+		elem_id = elem.get("id", "").lower()
+		elem_class = " ".join(elem.get("class", [])).lower()
+		if any(term in elem_id or term in elem_class for term in ["faq", "question", "answer", "q-and-a"]):
+			text = elem.get_text(" ", strip=True)
+			if text and len(text) > 20:  # Only meaningful content
+				extracted.append(text)
+	
+	return "\n\n".join(extracted)
+
+
 def extract_visible_text_full(html: str, url: str) -> Tuple[str, str]:
-	"""Return (title, full_text) from the entire page (excluding scripts/styles)."""
+	"""Return (title, full_text) from the entire page (excluding scripts/styles).
+	
+	This function extracts ALL text content, including hidden/collapsed content
+	like FAQ answers in accordions (height:0 divs, etc.)
+	"""
 	# Prefer lxml parser for better structure
 	soup = BeautifulSoup(html, "lxml")
 	title_tag = soup.find("title")
@@ -170,7 +231,21 @@ def extract_visible_text_full(html: str, url: str) -> Tuple[str, str]:
 	# Remove only script/style tags; keep structural elements so we capture full copy
 	for tag in soup(["script", "style", "noscript"]):
 		tag.decompose()
+	
+	# Extract main text (this gets everything in the DOM regardless of CSS)
 	text = soup.get_text("\n", strip=True)
+	
+	# Also explicitly extract hidden/FAQ content that might be missed
+	hidden_content = extract_hidden_and_faq_content(soup)
+	if hidden_content:
+		# Append hidden content if not already in main text (avoid duplicates)
+		# We check if key phrases from hidden content are missing from main text
+		hidden_lines = [line.strip() for line in hidden_content.split("\n") if len(line.strip()) > 30]
+		for line in hidden_lines[:10]:  # Check first 10 lines to avoid performance issues
+			if line.lower() not in text.lower():
+				text += "\n\n" + hidden_content
+				break
+	
 	# Normalize entities and whitespace, collapse 3+ newlines to 2
 	text = ihtml.unescape(text)
 	text = re.sub(r"\r\n?", "\n", text)
@@ -178,29 +253,8 @@ def extract_visible_text_full(html: str, url: str) -> Tuple[str, str]:
 	return title[:280], text[:2500000]
 
 
-def extract_visible_text_smart(html: str, url: str) -> Tuple[str, str]:
-	"""Try readability content; fallback to full page if too short."""
-	try:
-		doc = Document(html)
-		content_html = doc.summary(html_partial=True)
-		title = doc.short_title() or ""
-		soup = BeautifulSoup(content_html, "lxml")
-		for tag in soup(["script", "style", "noscript"]):
-			tag.decompose()
-		text = soup.get_text("\n", strip=True)
-		text = ihtml.unescape(text)
-		text = re.sub(r"\r\n?", "\n", text)
-		text = re.sub(r"\n{3,}", "\n\n", text)
-		if len(text) < 800:  # too short: fallback to full page
-			raise ValueError("readability too short")
-		if not title:
-			# Try from full doc if missing
-			full = BeautifulSoup(html, "lxml")
-			title_tag = full.find("title")
-			title = title_tag.get_text(strip=True) if title_tag else url
-		return title[:280], text[:2500000]
-	except Exception:
-		return extract_visible_text_full(html, url)
+# Removed extract_visible_text_smart - we only use extract_visible_text_full now
+# because it's more comprehensive and foolproof (extracts ALL content including hidden/collapsed elements)
 
 
 def build_structured_outline(html: str) -> Dict:
@@ -236,11 +290,29 @@ def build_structured_outline(html: str) -> Dict:
 		# - Tables: pipe-delimited rows
 		# - Images: include alt text caption
 		# - Code/pre: keep text
+		# - FAQ structures (dl/dt/dd): Q/A format
 		if not getattr(node, "name", None):
 			return str(node).strip()
 		name = node.name.lower()
 		if name in ["script", "style", "noscript"]:
 			return ""
+		if name == "dl":
+			# FAQ structure: extract Q&A pairs
+			faq_items = []
+			dt_tags = node.find_all("dt", recursive=False)
+			dd_tags = node.find_all("dd", recursive=False)
+			for i, dt in enumerate(dt_tags):
+				q = dt.get_text(" ", strip=True)
+				if q:
+					faq_items.append(f"Q: {q}")
+				if i < len(dd_tags):
+					a = dd_tags[i].get_text(" ", strip=True)
+					if a:
+						faq_items.append(f"A: {a}")
+			return "\n".join(faq_items) if faq_items else ""
+		if name in ["dt", "dd"]:
+			# Extract directly (will be handled by parent dl)
+			return node.get_text(" ", strip=True)
 		if name in ["p", "blockquote", "pre", "code"]:
 			text = node.get_text(" ", strip=True)
 			return text
@@ -496,7 +568,6 @@ def crawl(
 	api_key: str,
 	dump_prompts: bool = False,
 	no_truncate: bool = False,
-	extract_mode: str = "smart",
 	save_outline: bool = False,
 	use_vision: bool = False,
 	progress_callback: Optional[callable] = None,
@@ -609,10 +680,9 @@ def crawl(
 		if not html:
 			continue
 
-		if extract_mode == "full":
-			title, text = extract_visible_text_full(html, url)
-		else:
-			title, text = extract_visible_text_smart(html, url)
+		# Always use full extraction - it's more comprehensive and captures ALL content
+		# including hidden/collapsed elements like FAQ answers in accordions
+		title, text = extract_visible_text_full(html, url)
 
 		# Build structured outline for better LLM grounding
 		outline = build_structured_outline(html)
@@ -674,18 +744,74 @@ def crawl(
 				"- Extract dates, prices, ratings, counts only when explicit numeric/text values are present.\n"
 				"- Validate all property names against schema.org vocabulary.\n"
 				"- Ensure proper nesting: mainEntity, author, publisher should be complete objects with @type.\n"
-				"- Do NOT include debug/metadata fields (tag, level, headings, evidence, etc.)\n\n"
+				"- Do NOT include debug/metadata fields (tag, level, headings, evidence, etc.)\n"
+				"- DO NOT include extracted text, raw text, or any non-schema.org fields in your output\n"
+				"- DO NOT include 'extracted_text', 'extractedText', 'rawText', 'content', or similar fields\n"
+				"- Only return valid schema.org JSON-LD markup properties\n\n"
 				"OUTPUT FORMAT:\n"
 				"- Single JSON object with @context=\"https://schema.org\"\n"
 				"- Rich nested structure with mainEntity and related entities\n"
 				"- All text values should be clean, trimmed strings\n"
 				"- Arrays for lists (sameAs, keywords, featureList, etc.)\n"
-				"- Proper URL format for all url properties\n\n"
+				"- Proper URL format for all url properties\n"
+				"- ONLY schema.org properties - no custom fields, no extracted text, no metadata\n\n"
 				"Your goal is to create schema markup so comprehensive and accurate that another LLM reading only the JSON-LD "
 				"could reconstruct a detailed understanding of the page content, entities, relationships, and key information."
 			)
-			text_for_llm = text if no_truncate else text[:12000]
-			outline_for_llm = outline if no_truncate else {**outline, "sections": outline.get("sections", [])[:20]}
+			# Smart truncation: Estimate tokens and keep under limits
+			# Rough estimate: ~4 chars = 1 token for English text
+			# We need to leave room for: system prompt (~1000), outline (~3000), user prompt text (~2000), response (~2000)
+			# Target: ~25000 tokens total (leaving buffer under 30k limit)
+			max_chars_for_text = 80000 if no_truncate else 60000  # ~15k tokens for text
+			max_sections = None if no_truncate else 30
+			
+			# Smart truncation: prioritize important content
+			if len(text) > max_chars_for_text and not no_truncate:
+				# Try to preserve FAQ content and main sections
+				text_lower = text.lower()
+				
+				# Find FAQ sections (Q:, A:, FAQ, etc.)
+				faq_markers = ["q:", "a:", "faq", "question", "answer", "q&a"]
+				faq_indices = []
+				for marker in faq_markers:
+					idx = text_lower.find(marker)
+					if idx != -1:
+						faq_indices.append((idx, idx + 500))  # Assume ~500 chars per FAQ item
+				
+				# Prioritize: beginning of text + FAQ sections
+				if faq_indices:
+					# Keep first 40k chars (usually main content) + FAQ sections
+					keep_chars = min(40000, max_chars_for_text - 10000)  # Reserve space for FAQs
+					text_start = text[:keep_chars]
+					
+					# Append FAQ sections that aren't already included
+					faq_content = []
+					for start_idx, end_idx in sorted(faq_indices):
+						if start_idx > keep_chars:  # FAQ is after the cutoff
+							faq_section = text[start_idx:min(end_idx, len(text))]
+							if faq_section.strip() and len(faq_section) < 5000:  # Reasonable size
+								faq_content.append(faq_section)
+					
+					# Combine: start + FAQs (up to limit)
+					remaining_chars = max_chars_for_text - len(text_start)
+					if faq_content:
+						faq_text = "\n\n".join(faq_content[:remaining_chars // 500])  # Approx
+						if len(text_start) + len(faq_text) <= max_chars_for_text:
+							text_for_llm = text_start + "\n\n[FAQ Content from later in page]\n\n" + faq_text
+						else:
+							text_for_llm = text_start
+					else:
+						text_for_llm = text_start
+				else:
+					# No FAQs found, just truncate from beginning (most important content is usually at top)
+					text_for_llm = text[:max_chars_for_text]
+			else:
+				text_for_llm = text
+			
+			if outline.get("sections") and max_sections:
+				outline_for_llm = {**outline, "sections": outline["sections"][:max_sections]}
+			else:
+				outline_for_llm = outline
 			
 			# Build comprehensive user prompt with clear instructions
 			meta_info = outline_for_llm.get("meta", {})
@@ -717,17 +843,20 @@ def crawl(
 			user_parts.append("Use this structure to identify entities, relationships, FAQs, HowTo steps, features, testimonials, etc.")
 			user_parts.append("\n" + json.dumps(outline_for_llm, ensure_ascii=False, indent=2))
 			
-			# Add full text for full extraction mode
-			if extract_mode == "full":
-				user_parts.append(f"\n=== FULL EXTRACTED TEXT ({'complete' if no_truncate else 'truncated to 12000 chars'}) ===")
-				user_parts.append("Use this full text to verify details and extract any information missing from the outline above.")
-				user_parts.append(text_for_llm)
+			# Always add full extracted text (we always use full extraction mode now)
+			text_status = "complete" if len(text_for_llm) >= len(text) else f"truncated to {len(text_for_llm):,} chars (of {len(text):,} total)"
+			user_parts.append(f"\n=== FULL EXTRACTED TEXT ({text_status}) ===")
+			user_parts.append("Use this full text to verify details and extract any information missing from the outline above.")
+			if len(text_for_llm) < len(text):
+				user_parts.append("⚠️ NOTE: Text has been truncated. Use the screenshot (if provided) to extract additional details that may be missing from this truncated text, including FAQ answers, contact information, features, or any content visible in the screenshot.")
+			user_parts.append(text_for_llm)
 			
 			user_parts.append("\n=== YOUR TASK ===")
 			user_parts.append("Based on the structured outline and content above, generate comprehensive schema.org JSON-LD markup.")
 			user_parts.append("Extract ALL relevant entities (Organization, Product, Service, Person, etc.), relationships, and structured data.")
 			user_parts.append("Be thorough: include breadcrumbs, FAQs, features, testimonials, contact info, social links, etc. when present.")
 			user_parts.append("Remember: accuracy is critical—only include data explicitly present in the content.")
+			user_parts.append("CRITICAL: Your output must ONLY contain valid schema.org JSON-LD properties. DO NOT include 'extracted_text', 'extractedText', 'rawText', 'content', or any other non-schema.org fields. Only return the schema markup.")
 			
 			user = "\n".join(user_parts)
 
@@ -759,10 +888,17 @@ def crawl(
 						if vision_model != model:
 							log_info(f"Using vision model {vision_model} instead of {model}")
 						
+						vision_instruction = "\n\nIMPORTANT: Analyze the screenshot above to:"
+						vision_instruction += "\n1. Better understand the page layout, visual hierarchy, and content structure"
+						vision_instruction += "\n2. Extract any details missing from the truncated text (read text directly from the screenshot)"
+						vision_instruction += "\n3. Identify all FAQs, contact info, features, and key content visible in the image"
+						vision_instruction += "\n4. Use visual context to improve schema accuracy, especially for page type classification"
+						vision_instruction += "\n5. The screenshot shows the FULL page - use it to fill gaps from text truncation"
+						
 						messages.append({
 							"role": "user",
 							"content": [
-								{"type": "text", "text": user + "\n\nIMPORTANT: Analyze the screenshot above to better understand the page layout, visual hierarchy, and content structure. Use this visual context to improve schema accuracy, especially for identifying page type (marketing vs article), content sections, and key visual elements."},
+								{"type": "text", "text": user + vision_instruction},
 								{
 									"type": "image_url",
 									"image_url": {
@@ -776,14 +912,140 @@ def crawl(
 						messages.append({"role": "user", "content": user})
 						actual_model = model
 					
-					resp = client.chat.completions.create(
-						model=actual_model,
-						messages=messages,
-						response_format={"type": "json_object"},
-						temperature=0.2,
-					)
-					content = resp.choices[0].message.content
-					page_schema = json.loads(content)
+					# Retry logic for token limit errors
+					max_retries = 2
+					retry_count = 0
+					current_text = text_for_llm
+					current_outline = outline_for_llm
+					
+					while retry_count <= max_retries:
+						try:
+							resp = client.chat.completions.create(
+								model=actual_model,
+								messages=messages,
+								response_format={"type": "json_object"},
+								temperature=0.2,
+							)
+							content = resp.choices[0].message.content
+							page_schema = json.loads(content)
+							break
+						except Exception as api_error:
+							error_str = str(api_error)
+							# Check if it's a token limit error
+							if "429" in error_str and ("token" in error_str.lower() or "TPM" in error_str or "rate_limit" in error_str.lower()):
+								retry_count += 1
+								if retry_count > max_retries:
+									log_warn(f"Token limit exceeded after {max_retries} retries. Using aggressive truncation.")
+									# Last resort: aggressive truncation
+									current_text = text[:20000]  # ~5k tokens
+									if outline.get("sections"):
+										current_outline = {**outline, "sections": outline["sections"][:15]}
+									else:
+										current_outline = outline
+									
+									# Rebuild user message with truncated content
+									user_parts_trunc = user_parts[:-3]  # Remove old text parts
+									user_parts_trunc.append(f"\n=== FULL EXTRACTED TEXT (heavily truncated to {len(current_text):,} chars due to token limits) ===")
+									user_parts_trunc.append("Use this truncated text to verify details. Original text was too large for API.")
+									user_parts_trunc.append(current_text)
+									user_parts_trunc.append("\n=== YOUR TASK ===")
+									user_parts_trunc.append("Based on the structured outline and content above, generate comprehensive schema.org JSON-LD markup.")
+									user_parts_trunc.append("Extract ALL relevant entities (Organization, Product, Service, Person, etc.), relationships, and structured data.")
+									user_parts_trunc.append("CRITICAL: Your output must ONLY contain valid schema.org JSON-LD properties. DO NOT include 'extracted_text', 'extractedText', 'rawText', 'content', or any other non-schema.org fields.")
+									user_trunc = "\n".join(user_parts_trunc)
+									
+									if screenshot_b64:
+										vision_inst = "\n\nCRITICAL: Text is heavily truncated. Use the screenshot to extract ALL missing content including FAQs, contact info, features, and any text visible in the image."
+										messages = [
+											{"role": "system", "content": system},
+											{
+												"role": "user",
+												"content": [
+													{"type": "text", "text": user_trunc + vision_inst},
+													{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"}}
+												]
+											}
+										]
+									else:
+										messages = [{"role": "system", "content": system}, {"role": "user", "content": user_trunc}]
+									
+									# Final retry with aggressive truncation
+									resp = client.chat.completions.create(
+										model=actual_model,
+										messages=messages,
+										response_format={"type": "json_object"},
+										temperature=0.2,
+									)
+									content = resp.choices[0].message.content
+									page_schema = json.loads(content)
+									log_warn(f"Successfully generated schema with aggressive truncation after token limit error")
+									break
+								else:
+									# Progressive truncation on retry
+									log_warn(f"Token limit exceeded (attempt {retry_count}/{max_retries}). Truncating content and retrying...")
+									current_text = current_text[:int(len(current_text) * 0.7)]  # Reduce by 30%
+									if current_outline.get("sections"):
+										current_outline = {**current_outline, "sections": current_outline["sections"][:int(len(current_outline["sections"]) * 0.7)]}
+									
+									# Rebuild user message with truncated content
+									# Find where to insert the new truncated text (before the old text section)
+									text_start_idx = None
+									for i, part in enumerate(user_parts):
+										if "=== FULL EXTRACTED TEXT" in part:
+											text_start_idx = i
+											break
+									
+									if text_start_idx is not None:
+										# Rebuild: keep everything before text section, add new truncated text
+										user_parts_retry = user_parts[:text_start_idx]
+										# Update the outline in the STRUCTURED CONTENT OUTLINE section
+										outline_idx = None
+										for i, part in enumerate(user_parts_retry):
+											if "=== STRUCTURED CONTENT OUTLINE ===" in part:
+												outline_idx = i + 1  # Next line after header
+												break
+										if outline_idx and outline_idx < len(user_parts_retry):
+											# Replace outline JSON
+											user_parts_retry[outline_idx] = "\n" + json.dumps(current_outline, ensure_ascii=False, indent=2)
+										
+										# Add new truncated text section
+										user_parts_retry.append(f"\n=== FULL EXTRACTED TEXT (truncated to {len(current_text):,} chars after token limit error) ===")
+										user_parts_retry.append("Use this text to verify details and extract information.")
+										user_parts_retry.append(current_text)
+										user_parts_retry.append("\n=== YOUR TASK ===")
+										user_parts_retry.append("Based on the structured outline and content above, generate comprehensive schema.org JSON-LD markup.")
+										user_parts_retry.append("Extract ALL relevant entities (Organization, Product, Service, Person, etc.), relationships, and structured data.")
+										user_parts_retry.append("CRITICAL: Your output must ONLY contain valid schema.org JSON-LD properties. DO NOT include 'extracted_text', 'extractedText', 'rawText', 'content', or any other non-schema.org fields.")
+									else:
+										# Fallback: just rebuild from scratch
+										user_parts_retry = user_parts[:-3]
+										user_parts_retry.append(f"\n=== FULL EXTRACTED TEXT (truncated to {len(current_text):,} chars after token limit error) ===")
+										user_parts_retry.append("Use this text to verify details and extract information.")
+										user_parts_retry.append(current_text)
+										user_parts_retry.append("\n=== YOUR TASK ===")
+										user_parts_retry.append("Based on the structured outline and content above, generate comprehensive schema.org JSON-LD markup.")
+										user_parts_retry.append("Extract ALL relevant entities (Organization, Product, Service, Person, etc.), relationships, and structured data.")
+										user_parts_retry.append("CRITICAL: Your output must ONLY contain valid schema.org JSON-LD properties. DO NOT include 'extracted_text', 'extractedText', 'rawText', 'content', or any other non-schema.org fields.")
+									
+									user_retry = "\n".join(user_parts_retry)
+									
+									if screenshot_b64:
+										vision_inst = "\n\nNOTE: Text was truncated due to token limits. Use the screenshot to read and extract any missing content, especially FAQs, contact details, or features visible in the image."
+										messages = [
+											{"role": "system", "content": system},
+											{
+												"role": "user",
+												"content": [
+													{"type": "text", "text": user_retry + vision_inst},
+													{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"}}
+												]
+											}
+										]
+									else:
+										messages = [{"role": "system", "content": system}, {"role": "user", "content": user_retry}]
+							else:
+								# Not a token limit error, re-raise
+								raise api_error
 				except json.JSONDecodeError:
 					log_warn(f"Failed to parse LLM JSON response for {url}, using fallback")
 					page_schema = {"@context": "https://schema.org", "@type": "WebPage", "name": title, "url": url}
@@ -803,6 +1065,22 @@ def crawl(
 				"url": url,
 			}
 
+		# Clean schema: Remove any non-schema.org fields that LLM might have added
+		non_schema_fields = ["extracted_text", "extractedText", "rawText", "content", "raw_text", "full_text", 
+		                      "outline", "sections", "headings", "tag", "level", "evidence", "metadata"]
+		if isinstance(page_schema, dict):
+			for field in non_schema_fields:
+				if field in page_schema:
+					del page_schema[field]
+			# Recursively clean nested objects
+			def clean_dict(d):
+				if isinstance(d, dict):
+					return {k: clean_dict(v) for k, v in d.items() if k not in non_schema_fields}
+				elif isinstance(d, list):
+					return [clean_dict(item) for item in d]
+				return d
+			page_schema = clean_dict(page_schema)
+
 		# Optionally persist outline separately for audit; do not embed in page JSON
 		if save_outline:
 			with open(os.path.join(analysis_dir, f"{page_slug}.outline.json"), "w", encoding="utf-8") as of:
@@ -814,7 +1092,6 @@ def crawl(
 				{
 					"url": url,
 					"title": title,
-					"extracted_text": text,
 					"schema_jsonld": page_schema,
 				},
 				f,
@@ -852,7 +1129,7 @@ def main() -> None:
 	parser.add_argument("--user-agent", help="Custom User-Agent header")
 	parser.add_argument("--allow-subdomains", action="store_true", help="Also crawl subdomains")
 	parser.add_argument("--timeout", type=int, default=20, help="Per-request timeout in seconds")
-	parser.add_argument("--model", default="gpt-4o-mini", help="OpenAI model for schema generation (default: gpt-4o-mini, auto-upgrades to gpt-4o for vision)")
+	parser.add_argument("--model", default="gpt-4o", help="OpenAI model for schema generation (default: gpt-4o with vision capabilities)")
 	parser.add_argument("--api-key", help="OpenAI API key override (will take precedence)")
 	parser.add_argument("--config", help="Path to project config JSON (default: schema_config.json)")
 	parser.add_argument("--save-outline", action="store_true", help="Save structured outline to output/analysis/<slug>.outline.json (not embedded in page JSON)")
@@ -883,12 +1160,12 @@ def main() -> None:
 	)
 
 	# Allow config to set default model if user didn't override
-	model = args.model or project_cfg.get("model") or user_cfg.get("model") or "gpt-4o-mini"
+	model = args.model or project_cfg.get("model") or user_cfg.get("model") or "gpt-4o"
 
 	# Default behaviors (always enabled):
 	# - use_vision: Always use screenshot + vision model
 	# - no_truncate: Always send full extracted text
-	# - extract_mode: Always use smart extraction
+	# - Text extraction: Always use full extraction (captures ALL content including hidden/collapsed elements)
 	# - skip_llm: Always false (always generate schema)
 	# - dump_prompts: Always save prompts to output/prompts/
 
@@ -906,7 +1183,6 @@ def main() -> None:
 		api_key=api_key,
 		dump_prompts=True,  # Always save prompts
 		no_truncate=True,  # Always send full text
-		extract_mode="smart",  # Always use smart extraction
 		use_vision=True,  # Always use vision
 	)
 

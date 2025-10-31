@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_file, Response, stream_with_context
+from flask import Flask, jsonify, request, send_file, Response, stream_with_context, send_from_directory
 import base64
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -27,11 +27,17 @@ jobs = {}
 # Load environment variables from .env file
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='public', static_url_path='')
 CORS(app)  # Enable CORS for all routes
 
 # Get API key from environment
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+
+@app.route("/", methods=["GET"])
+def index():
+	"""Serve the web interface"""
+	return send_from_directory('public', 'index.html')
 
 
 @app.route("/health", methods=["GET"])
@@ -68,7 +74,7 @@ def crawl_stream_endpoint():
 	rate_limit = data.get("rate_limit", 0.5)
 	timeout = data.get("timeout", 20)
 	allow_subdomains = data.get("allow_subdomains", False)
-	model = data.get("model", "gpt-4o-mini")
+	model = data.get("model", "gpt-4o")
 	api_key = data.get("api_key") or OPENAI_API_KEY
 	
 	if not api_key:
@@ -194,7 +200,7 @@ def crawl_endpoint():
 		"rate_limit": 1.0,  # Optional, default 0.5
 		"timeout": 30,  # Optional, default 20
 		"allow_subdomains": false,  # Optional, default false
-		"model": "gpt-4o-mini",  # Optional
+		"model": "gpt-4o",  # Optional, default: gpt-4o (vision-capable)
 		"api_key": "sk-..."  # Optional, overrides env var
 	}
 	
@@ -216,7 +222,7 @@ def crawl_endpoint():
 	rate_limit = data.get("rate_limit", 0.5)
 	timeout = data.get("timeout", 20)
 	allow_subdomains = data.get("allow_subdomains", False)
-	model = data.get("model", "gpt-4o-mini")
+	model = data.get("model", "gpt-4o")
 	api_key = data.get("api_key") or OPENAI_API_KEY
 	
 	if not api_key:
@@ -246,7 +252,6 @@ def crawl_endpoint():
 				api_key=api_key,
 				dump_prompts=True,
 				no_truncate=True,
-				extract_mode="smart",
 				use_vision=True,
 			)
 		except Exception as exc:
@@ -372,11 +377,10 @@ def crawl_async_endpoint():
 				allow_subdomains=data.get("allow_subdomains", False),
 				timeout=data.get("timeout", 20),
 				skip_llm=False,
-				model=data.get("model", "gpt-4o-mini"),
+				model=data.get("model", "gpt-4o"),
 				api_key=api_key,
 				dump_prompts=True,
 				no_truncate=True,
-				extract_mode="smart",
 				use_vision=True,
 				progress_callback=progress_callback,
 			)

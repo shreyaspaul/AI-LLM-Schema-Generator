@@ -35,12 +35,18 @@
 **Settings:**
 
 - **Name:** `ai-schema-generator` (or any name)
-- **Environment:** `Python 3`
+- **Environment:** `Docker` ✅ (Choose this since we have a Dockerfile)
 - **Region:** Choose closest to you
 - **Branch:** `main`
 - **Root Directory:** Leave empty
-- **Build Command:** `pip install -r requirements.txt && playwright install chromium --with-deps`
-- **Start Command:** `python3 app.py`
+- **Dockerfile Path:** `Dockerfile` (leave as default)
+- **Docker Build Context:** `.` (leave as default)
+
+**Note:** Render will automatically use your Dockerfile, which already includes:
+- All Python dependencies
+- Playwright browser installation
+- Proper port configuration
+- All system dependencies for Chromium
 
 **Environment Variables:**
 
