@@ -36,15 +36,20 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers (this is critical for cloud deployment)
-RUN playwright install chromium --with-deps
+# Set environment variables for Playwright BEFORE installing browsers
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV DISPLAY=:99
+
+# Create directory for Playwright browsers and set permissions
+RUN mkdir -p /ms-playwright && chmod -R 755 /ms-playwright
 
 # Copy application code
 COPY . .
 
-# Set environment variables for Playwright
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-ENV DISPLAY=:99
+# Install Playwright browsers (this is critical for cloud deployment)
+# Must be done after installing Python packages
+# System dependencies already installed above, so just install browser
+RUN playwright install chromium
 
 # Expose port for API
 EXPOSE 8000
