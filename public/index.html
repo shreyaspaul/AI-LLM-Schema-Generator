@@ -665,24 +665,35 @@
         function downloadResult(jobId) {
             addProgressMessage('info', 'Downloading manifest file...');
             
-            fetch(`${API_URL}/crawl/result/${jobId}`)
+            // Request .txt format for Webflow compatibility
+            fetch(`${API_URL}/crawl/result/${jobId}?format=txt`)
                 .then(response => {
                     if (!response.ok) {
                         throw new Error('Failed to download result');
                     }
-                    return response.blob();
+                    // Try to get filename from Content-Disposition header
+                    const contentDisposition = response.headers.get('Content-Disposition');
+                    let filename = 'manifest.v1.txt'; // Default
+                    if (contentDisposition) {
+                        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+                        if (filenameMatch) {
+                            filename = filenameMatch[1];
+                        }
+                    }
+                    
+                    return response.blob().then(blob => ({ blob, filename }));
                 })
-                .then(blob => {
+                .then(({ blob, filename }) => {
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `manifest.v1.json`;
+                    a.download = filename;
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);
                     document.body.removeChild(a);
                     
-                    addProgressMessage('info', '✓ Manifest file downloaded successfully!');
+                    addProgressMessage('info', `✓ Manifest file (${filename}) downloaded successfully!`);
                     resetButton();
                 })
                 .catch(error => {

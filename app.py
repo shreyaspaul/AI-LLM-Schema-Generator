@@ -120,11 +120,12 @@ def crawl_stream_endpoint():
 				)
 				
 				# Get manifest file path
-				manifest_path = os.path.join(output_dir, "manifest.v1.json")
-				if not os.path.exists(manifest_path):
-					raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
+				manifest_json_path = os.path.join(output_dir, "manifest.v1.json")
+				manifest_txt_path = os.path.join(output_dir, "manifest.v1.txt")
+				if not os.path.exists(manifest_json_path):
+					raise FileNotFoundError(f"Manifest file not found: {manifest_json_path}")
 				
-				progress_queue.put({"type": "complete", "message": "Crawl completed", "manifest_path": manifest_path})
+				progress_queue.put({"type": "complete", "message": "Crawl completed", "manifest_path": manifest_json_path, "manifest_txt_path": manifest_txt_path})
 			except Exception as exc:
 				crawl_error = str(exc)
 				progress_queue.put({"type": "error", "message": f"Crawler failed: {crawl_error}"})
@@ -142,14 +143,19 @@ def crawl_stream_endpoint():
 					# Send completion and manifest file
 					yield f"data: {json.dumps(update)}\n\n"
 					
-					# Read manifest file and send as base64
-					with open(update["manifest_path"], "rb") as f:
-						manifest_b64 = base64.b64encode(f.read()).decode("utf-8")
-						timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-						safe_domain = base_url.replace("https://", "").replace("http://", "").replace("/", "_")[:50]
-						filename = f"manifest.v1.json"
-						
-						yield f"data: {json.dumps({'type': 'manifest', 'filename': filename, 'data': manifest_b64})}\n\n"
+					# Read manifest .txt file (for Webflow) and send as base64
+					manifest_txt_path = update.get("manifest_txt_path") or update["manifest_path"].replace(".json", ".txt")
+					if os.path.exists(manifest_txt_path):
+						with open(manifest_txt_path, "rb") as f:
+							manifest_b64 = base64.b64encode(f.read()).decode("utf-8")
+							filename = "manifest.v1.txt"
+							yield f"data: {json.dumps({'type': 'manifest', 'filename': filename, 'data': manifest_b64})}\n\n"
+					else:
+						# Fallback to JSON if .txt doesn't exist
+						with open(update["manifest_path"], "rb") as f:
+							manifest_b64 = base64.b64encode(f.read()).decode("utf-8")
+							filename = "manifest.v1.json"
+							yield f"data: {json.dumps({'type': 'manifest', 'filename': filename, 'data': manifest_b64})}\n\n"
 					
 					# Cleanup
 					if temp_dir and os.path.exists(temp_dir):
@@ -254,20 +260,33 @@ def crawl_endpoint():
 				"error": f"Crawler failed: {str(exc)}"
 			}), 500
 		
-		# Get manifest file
-		manifest_path = os.path.join(output_dir, "manifest.v1.json")
-		if not os.path.exists(manifest_path):
-			return jsonify({
-				"error": "Manifest file not generated. Check logs for details."
-			}), 500
-		
-		# Send manifest JSON file
-		return send_file(
-			manifest_path,
-			mimetype="application/json",
-			as_attachment=True,
-			download_name="manifest.v1.json"
-		)
+		# Get manifest file - check for .txt format if requested (for Webflow)
+		format_type = request.args.get("format", "json").lower()
+		if format_type == "txt":
+			manifest_path = os.path.join(output_dir, "manifest.v1.txt")
+			if not os.path.exists(manifest_path):
+				return jsonify({
+					"error": "Manifest .txt file not generated. Check logs for details."
+				}), 500
+			return send_file(
+				manifest_path,
+				mimetype="text/plain",
+				as_attachment=True,
+				download_name="manifest.v1.txt"
+			)
+		else:
+			manifest_path = os.path.join(output_dir, "manifest.v1.json")
+			if not os.path.exists(manifest_path):
+				return jsonify({
+					"error": "Manifest file not generated. Check logs for details."
+				}), 500
+			# Send manifest JSON file
+			return send_file(
+				manifest_path,
+				mimetype="application/json",
+				as_attachment=True,
+				download_name="manifest.v1.json"
+			)
 		
 	except Exception as exc:
 		return jsonify({
@@ -366,14 +385,17 @@ def crawl_async_endpoint():
 				progress_callback=progress_callback,
 			)
 			
-			# Get manifest file
-			manifest_path = os.path.join(output_dir, "manifest.v1.json")
-			if not os.path.exists(manifest_path):
-				raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
+			# Get manifest files (both .json and .txt)
+			manifest_json_path = os.path.join(output_dir, "manifest.v1.json")
+			manifest_txt_path = os.path.join(output_dir, "manifest.v1.txt")
+			if not os.path.exists(manifest_json_path):
+				raise FileNotFoundError(f"Manifest file not found: {manifest_json_path}")
 			
 			jobs[job_id]["status"] = "completed"
-			jobs[job_id]["manifest_path"] = manifest_path
+			jobs[job_id]["manifest_path"] = manifest_json_path
+			jobs[job_id]["manifest_txt_path"] = manifest_txt_path
 			jobs[job_id]["filename"] = "manifest.v1.json"
+			jobs[job_id]["filename_txt"] = "manifest.v1.txt"
 			jobs[job_id]["temp_dir"] = temp_dir
 			
 		except Exception as exc:
@@ -445,16 +467,28 @@ def crawl_result_endpoint(job_id):
 			"status": "failed"
 		}), 500
 	
-	if not job.get("manifest_path") or not os.path.exists(job["manifest_path"]):
-		return jsonify({"error": "Result file not found"}), 404
-	
-	# Send manifest JSON file
-	return send_file(
-		job["manifest_path"],
-		mimetype="application/json",
-		as_attachment=True,
-		download_name=job.get("filename", "manifest.v1.json")
-	)
+	# Check format parameter - return .txt for Webflow if requested
+	format_type = request.args.get("format", "json").lower()
+	if format_type == "txt":
+		manifest_path = job.get("manifest_txt_path") or job.get("manifest_path", "").replace(".json", ".txt")
+		if not manifest_path or not os.path.exists(manifest_path):
+			return jsonify({"error": "Result .txt file not found"}), 404
+		return send_file(
+			manifest_path,
+			mimetype="text/plain",
+			as_attachment=True,
+			download_name=job.get("filename_txt", "manifest.v1.txt")
+		)
+	else:
+		if not job.get("manifest_path") or not os.path.exists(job["manifest_path"]):
+			return jsonify({"error": "Result file not found"}), 404
+		# Send manifest JSON file
+		return send_file(
+			job["manifest_path"],
+			mimetype="application/json",
+			as_attachment=True,
+			download_name=job.get("filename", "manifest.v1.json")
+		)
 
 
 @app.errorhandler(404)

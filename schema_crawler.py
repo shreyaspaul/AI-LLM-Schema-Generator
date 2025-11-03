@@ -1116,13 +1116,17 @@ def crawl(
 
 		# Extract path from URL for manifest key
 		# IMPORTANT: Use the exact URL as it appears in the queue (original crawled URL)
-		# This ensures the path matches what the user expects for their script logic
+		# Normalize trailing slashes for consistency with Webflow injection script
 		parsed_url = urlparse.urlparse(url)
-		# Get the full path including all segments, exactly as it appears in the URL
+		# Get the full path including all segments
 		path = parsed_url.path or "/"
 		# Ensure path starts with / for consistency
 		if not path.startswith("/"):
 			path = "/" + path
+		# Normalize trailing slashes: remove trailing slashes except for root "/"
+		# This ensures consistent matching with the Webflow injection script
+		if path != "/" and path.endswith("/"):
+			path = path.rstrip("/")
 		
 		# Debug logging to verify path extraction (can be removed after testing)
 		log_info(f"Extracted path '{path}' from URL: {url}")
@@ -1171,8 +1175,14 @@ def crawl(
 	with open(manifest_path, "w", encoding="utf-8") as f:
 		json.dump(manifest, f, ensure_ascii=False, indent=2)
 	
+	# Also create a .txt copy for Webflow (Webflow doesn't allow .json uploads)
+	manifest_txt_path = manifest_path.replace(".json", ".txt")
+	with open(manifest_txt_path, "w", encoding="utf-8") as f:
+		json.dump(manifest, f, ensure_ascii=False, indent=2)
+	
 	log_info("─" * 60)
 	log_info(f"Wrote manifest with {len(manifest)} entries: {manifest_path}")
+	log_info(f"Also created .txt copy for Webflow: {manifest_txt_path}")
 	
 	# Final cleanup - clear manifest from memory
 	manifest.clear()
