@@ -387,6 +387,179 @@
         .collapsible.active .toggle-arrow {
             transform: rotate(90deg);
         }
+
+        /* Webflow Code Section */
+        .webflow-code-section {
+            margin-top: 40px;
+            padding-top: 40px;
+            border-top: 1px solid #334155;
+        }
+
+        .code-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .code-section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .code-icon {
+            font-size: 1.5rem;
+        }
+
+        .code-title {
+            color: #f1f5f9;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: -0.5px;
+        }
+
+        .copy-button {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: #0f172a;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            color: #e2e8f0;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+
+        .copy-button:hover {
+            background: #1e293b;
+            border-color: #64748b;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .copy-button:active {
+            transform: translateY(0);
+        }
+
+        .copy-icon {
+            font-size: 1rem;
+        }
+
+        .copy-text {
+            transition: opacity 0.3s ease;
+        }
+
+        .copied-indicator {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            opacity: 0;
+            transition: all 0.3s ease;
+            color: #10b981;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .copy-button.copied .copy-text,
+        .copy-button.copied .copy-icon {
+            opacity: 0;
+        }
+
+        .copy-button.copied .copied-indicator {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+        }
+
+        .code-instructions {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            color: #cbd5e1;
+        }
+
+        .code-instructions p {
+            margin: 0 0 15px 0;
+            color: #f1f5f9;
+            font-weight: 600;
+        }
+
+        .code-instructions ol {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .code-instructions li {
+            margin: 10px 0;
+            line-height: 1.6;
+        }
+
+        .code-instructions code {
+            background: #1e293b;
+            border: 1px solid #334155;
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: #60a5fa;
+            font-size: 0.9em;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        }
+
+        .code-instructions strong {
+            color: #f1f5f9;
+        }
+
+        .code-block {
+            position: relative;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 0;
+            overflow-x: auto;
+            color: #e2e8f0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+
+        .code-block code {
+            display: block;
+            white-space: pre;
+            color: inherit;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+
+        .code-block::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .code-block::-webkit-scrollbar-track {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+
+        .code-block::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+
+        .code-block::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
     </style>
 </head>
 <body>
@@ -495,14 +668,14 @@
                         <h3 class="feature-title">Automation & Integration</h3>
                     </div>
                     <p class="feature-description">
-                        Built with automation in mind. Use the API with <strong>Webflow MCP</strong> to automatically add schema to your pages, integrate with n8n workflows, or connect to your existing CI/CD pipeline. Set it once, and keep your schema updated as your site grows.
+                        Built with automation in mind. Use the API with <strong>n8n workflows, Zapier, or your existing CI/CD pipeline</strong> to automatically add schema to your pages. Set it once, and keep your schema updated as your site grows.
                     </p>
                 </div>
 
                 <div class="use-cases">
                     <div class="use-cases-title">💡 Popular Use Cases:</div>
                     <ul class="use-case-list">
-                        <li>Integrate with <strong>Webflow MCP</strong> to automatically inject schema into your Webflow pages</li>
+                        <li>Use the <strong>Webflow injection script</strong> (provided below) to automatically inject schema into your Webflow pages</li>
                         <li>Use with <strong>n8n or Zapier</strong> to generate schema on every site update</li>
                         <li>Prepare e-commerce sites for <strong>Google Shopping</strong> and rich results</li>
                         <li>Optimize content sites for <strong>Google's AI Overview</strong> and featured snippets</li>
@@ -511,6 +684,83 @@
                     </ul>
                 </div>
             </div>
+        </div>
+
+        <div class="webflow-code-section">
+            <div class="code-section-header">
+                <div class="code-section-title">
+                    <span class="code-icon">📋</span>
+                    <h2 class="code-title">Webflow Integration Code</h2>
+                </div>
+                <button class="copy-button" id="copyButton" title="Copy to clipboard">
+                    <span class="copy-icon">📋</span>
+                    <span class="copy-text">Copy</span>
+                    <span class="copied-indicator" id="copiedIndicator">✓ Copied!</span>
+                </button>
+            </div>
+            
+            <div class="code-instructions">
+                <p><strong>Quick Setup:</strong></p>
+                <ol>
+                    <li>Generate your schema manifest using the tool above</li>
+                    <li>Upload the <code>manifest.v1.txt</code> file to Webflow Assets</li>
+                    <li>Copy the asset URL from Webflow</li>
+                    <li>Replace <code>https://your-webflow-asset-url/manifest.v1.txt</code> in the code below with your actual asset URL</li>
+                    <li>Copy the entire code block below</li>
+                    <li>Paste it into Webflow: <strong>Site Settings → Custom Code → Head Code</strong></li>
+                </ol>
+            </div>
+
+            <pre class="code-block" id="webflowCode"><code>// Webflow Site Settings Head Injection Script
+// This script fetches manifest.v1.txt (JSON content in .txt file) and injects schema markup for the current page
+// Note: Webflow doesn't allow .json uploads, so we use .txt file containing JSON
+
+(function () {
+  var MANIFEST_URL = "https://your-webflow-asset-url/manifest.v1.txt"; // ← replace with your Webflow asset URL (.txt file)
+
+  function currentPath() {
+    // Prefer canonical link if present (handles redirects/aliases)
+    var link = document.querySelector('link[rel="canonical"]');
+    if (link && link.href) {
+      try { 
+        return new URL(link.href).pathname.replace(/\/+$/,'') || '/'; 
+      } catch(e){}
+    }
+    // Fallback to current location pathname
+    var p = location.pathname.replace(/\/+$/,'');
+    return p === "" ? "/" : p;
+  }
+
+  function inject(json) {
+    try {
+      var s = document.createElement('script');
+      s.type = 'application/ld+json';   
+      s.text = JSON.stringify(json);
+      (document.head || document.documentElement).appendChild(s);
+    } catch(e) {}
+  }
+
+  fetch(MANIFEST_URL, { cache: "no-cache" })
+    .then(function(r){ return r.text(); }) // Get as text first
+    .then(function(text){
+      try {
+        var manifest = JSON.parse(text); // Parse JSON from text file
+        var path = currentPath();
+        // Try multiple path variations for matching (handles trailing slash differences)
+        var payload = manifest[path]
+                   || manifest[path.replace(/\/$/,'')]
+                   || manifest[(path + '/').replace(/\/+$/,'/')];
+        if (payload) inject(payload);
+      } catch(e) {
+        // Silently fail if JSON parsing fails
+        console.error('Failed to parse manifest:', e);
+      }
+    })
+    .catch(function(e){
+      // Silently fail if fetch fails
+      console.error('Failed to fetch manifest:', e);
+    });
+})();</code></pre>
         </div>
     </div>
 
@@ -711,6 +961,44 @@
             submitBtn.disabled = false;
             submitBtn.textContent = 'Generate Schema';
         }
+
+        // Copy button functionality
+        const copyButton = document.getElementById('copyButton');
+        const webflowCode = document.getElementById('webflowCode');
+        const copiedIndicator = document.getElementById('copiedIndicator');
+
+        copyButton.addEventListener('click', async () => {
+            try {
+                const codeText = webflowCode.textContent;
+                await navigator.clipboard.writeText(codeText);
+                
+                // Show copied indicator
+                copyButton.classList.add('copied');
+                
+                // Reset after 2 seconds
+                setTimeout(() => {
+                    copyButton.classList.remove('copied');
+                }, 2000);
+            } catch (err) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = webflowCode.textContent;
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    copyButton.classList.add('copied');
+                    setTimeout(() => {
+                        copyButton.classList.remove('copied');
+                    }, 2000);
+                } catch (fallbackErr) {
+                    alert('Failed to copy. Please select and copy manually.');
+                }
+                document.body.removeChild(textArea);
+            }
+        });
     </script>
 </body>
 </html>
