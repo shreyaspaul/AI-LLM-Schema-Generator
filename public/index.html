@@ -625,7 +625,7 @@
                             statusBadge.className = 'status-badge completed';
                             statusBadge.textContent = 'Completed!';
                             
-                            // Step 3: Download ZIP
+                            // Step 3: Download manifest file
                             downloadResult(job_id);
                         } else if (status.status === 'failed') {
                             clearInterval(pollInterval);
@@ -663,7 +663,7 @@
         }
 
         function downloadResult(jobId) {
-            addProgressMessage('info', 'Downloading ZIP file...');
+            addProgressMessage('info', 'Downloading manifest file...');
             
             fetch(`${API_URL}/crawl/result/${jobId}`)
                 .then(response => {
@@ -676,13 +676,13 @@
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `schema_output_${new Date().getTime()}.zip`;
+                    a.download = `manifest.v1.json`;
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);
                     document.body.removeChild(a);
                     
-                    addProgressMessage('info', '✓ ZIP file downloaded successfully!');
+                    addProgressMessage('info', '✓ Manifest file downloaded successfully!');
                     resetButton();
                 })
                 .catch(error => {

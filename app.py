@@ -56,7 +56,7 @@ def crawl_stream_endpoint():
 	"""
 	Streaming crawl endpoint with real-time progress updates via Server-Sent Events (SSE).
 	
-	Same request format as /crawl, but streams progress updates and returns ZIP at the end.
+	Same request format as /crawl, but streams progress updates and returns manifest.v1.json at the end.
 	Use EventSource or SSE client to receive updates.
 	"""
 	if not request.is_json:
@@ -86,7 +86,7 @@ def crawl_stream_endpoint():
 		"""Generator function for SSE streaming"""
 		progress_queue = queue.Queue()
 		crawl_error = None
-		zip_path = None
+		manifest_path = None
 		temp_dir = None
 		
 		def progress_callback(level, message):
@@ -95,7 +95,7 @@ def crawl_stream_endpoint():
 		
 		def run_crawl():
 			"""Run crawler in background thread"""
-			nonlocal crawl_error, zip_path, temp_dir
+			nonlocal crawl_error, manifest_path, temp_dir
 			try:
 				temp_dir = tempfile.mkdtemp(prefix="schema_gen_", suffix=f"_{int(datetime.utcnow().timestamp())}")
 				output_dir = os.path.join(temp_dir, "output")
@@ -115,21 +115,16 @@ def crawl_stream_endpoint():
 					api_key=api_key,
 					dump_prompts=True,
 					no_truncate=True,
-					extract_mode="smart",
 					use_vision=True,
 					progress_callback=progress_callback,
 				)
 				
-				# Create ZIP file
-				zip_path = os.path.join(temp_dir, "schema_output.zip")
-				with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-					for root, dirs, files in os.walk(output_dir):
-						for file in files:
-							file_path = os.path.join(root, file)
-							arc_name = os.path.relpath(file_path, output_dir)
-							zipf.write(file_path, arc_name)
+				# Get manifest file path
+				manifest_path = os.path.join(output_dir, "manifest.v1.json")
+				if not os.path.exists(manifest_path):
+					raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
 				
-				progress_queue.put({"type": "complete", "message": "Crawl completed", "zip_path": zip_path})
+				progress_queue.put({"type": "complete", "message": "Crawl completed", "manifest_path": manifest_path})
 			except Exception as exc:
 				crawl_error = str(exc)
 				progress_queue.put({"type": "error", "message": f"Crawler failed: {crawl_error}"})
@@ -144,17 +139,17 @@ def crawl_stream_endpoint():
 				update = progress_queue.get(timeout=1)
 				
 				if update["type"] == "complete":
-					# Send completion and ZIP file
+					# Send completion and manifest file
 					yield f"data: {json.dumps(update)}\n\n"
 					
-					# Read ZIP file and send as base64
-					with open(update["zip_path"], "rb") as f:
-						zip_b64 = base64.b64encode(f.read()).decode("utf-8")
+					# Read manifest file and send as base64
+					with open(update["manifest_path"], "rb") as f:
+						manifest_b64 = base64.b64encode(f.read()).decode("utf-8")
 						timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 						safe_domain = base_url.replace("https://", "").replace("http://", "").replace("/", "_")[:50]
-						filename = f"schema_{safe_domain}_{timestamp}.zip"
+						filename = f"manifest.v1.json"
 						
-						yield f"data: {json.dumps({'type': 'zip', 'filename': filename, 'data': zip_b64})}\n\n"
+						yield f"data: {json.dumps({'type': 'manifest', 'filename': filename, 'data': manifest_b64})}\n\n"
 					
 					# Cleanup
 					if temp_dir and os.path.exists(temp_dir):
@@ -204,7 +199,7 @@ def crawl_endpoint():
 		"api_key": "sk-..."  # Optional, overrides env var
 	}
 	
-	Returns: ZIP file with all generated schema files
+	Returns: manifest.v1.json file with all schemas in a single JSON object
 	"""
 	# Validate request
 	if not request.is_json:
@@ -259,33 +254,19 @@ def crawl_endpoint():
 				"error": f"Crawler failed: {str(exc)}"
 			}), 500
 		
-		# Check if output was generated
-		if not os.path.exists(output_dir) or not os.listdir(output_dir):
+		# Get manifest file
+		manifest_path = os.path.join(output_dir, "manifest.v1.json")
+		if not os.path.exists(manifest_path):
 			return jsonify({
-				"error": "No output generated. Check logs for details."
+				"error": "Manifest file not generated. Check logs for details."
 			}), 500
 		
-		# Create ZIP file
-		zip_path = os.path.join(temp_dir, "schema_output.zip")
-		with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-			# Add all files from output directory
-			for root, dirs, files in os.walk(output_dir):
-				for file in files:
-					file_path = os.path.join(root, file)
-					arc_name = os.path.relpath(file_path, output_dir)
-					zipf.write(file_path, arc_name)
-		
-		# Generate filename with timestamp
-		timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-		safe_domain = base_url.replace("https://", "").replace("http://", "").replace("/", "_")[:50]
-		filename = f"schema_{safe_domain}_{timestamp}.zip"
-		
-		# Send ZIP file
+		# Send manifest JSON file
 		return send_file(
-			zip_path,
-			mimetype="application/zip",
+			manifest_path,
+			mimetype="application/json",
 			as_attachment=True,
-			download_name=filename
+			download_name="manifest.v1.json"
 		)
 		
 	except Exception as exc:
@@ -315,7 +296,7 @@ def not_found(error):
 def crawl_async_endpoint():
 	"""
 	Start a crawl job asynchronously. Returns job_id immediately.
-	Use /crawl/status/<job_id> to poll for progress and /crawl/result/<job_id> to get ZIP.
+	Use /crawl/status/<job_id> to poll for progress and /crawl/result/<job_id> to get manifest file.
 	
 	Perfect for n8n workflows that need to poll for completion.
 	"""
@@ -344,7 +325,7 @@ def crawl_async_endpoint():
 		"base_url": base_url,
 		"created_at": datetime.utcnow().isoformat(),
 		"error": None,
-		"zip_path": None,
+		"manifest_path": None,
 		"filename": None,
 	}
 	
@@ -385,22 +366,14 @@ def crawl_async_endpoint():
 				progress_callback=progress_callback,
 			)
 			
-			# Create ZIP
-			zip_path = os.path.join(temp_dir, "schema_output.zip")
-			with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-				for root, dirs, files in os.walk(output_dir):
-					for file in files:
-						file_path = os.path.join(root, file)
-						arc_name = os.path.relpath(file_path, output_dir)
-						zipf.write(file_path, arc_name)
-			
-			timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-			safe_domain = base_url.replace("https://", "").replace("http://", "").replace("/", "_")[:50]
-			filename = f"schema_{safe_domain}_{timestamp}.zip"
+			# Get manifest file
+			manifest_path = os.path.join(output_dir, "manifest.v1.json")
+			if not os.path.exists(manifest_path):
+				raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
 			
 			jobs[job_id]["status"] = "completed"
-			jobs[job_id]["zip_path"] = zip_path
-			jobs[job_id]["filename"] = filename
+			jobs[job_id]["manifest_path"] = manifest_path
+			jobs[job_id]["filename"] = "manifest.v1.json"
 			jobs[job_id]["temp_dir"] = temp_dir
 			
 		except Exception as exc:
@@ -450,9 +423,9 @@ def crawl_status_endpoint(job_id):
 @app.route("/crawl/result/<job_id>", methods=["GET"])
 def crawl_result_endpoint(job_id):
 	"""
-	Get the ZIP file result for a completed job.
+	Get the manifest file result for a completed job.
 	
-	Returns ZIP file if job is completed, 404 if not found, 202 if still running.
+	Returns manifest JSON file if job is completed, 404 if not found, 202 if still running.
 	"""
 	if job_id not in jobs:
 		return jsonify({"error": "Job not found"}), 404
@@ -472,15 +445,15 @@ def crawl_result_endpoint(job_id):
 			"status": "failed"
 		}), 500
 	
-	if not job.get("zip_path") or not os.path.exists(job["zip_path"]):
+	if not job.get("manifest_path") or not os.path.exists(job["manifest_path"]):
 		return jsonify({"error": "Result file not found"}), 404
 	
-	# Send ZIP file
+	# Send manifest JSON file
 	return send_file(
-		job["zip_path"],
-		mimetype="application/zip",
+		job["manifest_path"],
+		mimetype="application/json",
 		as_attachment=True,
-		download_name=job["filename"]
+		download_name=job.get("filename", "manifest.v1.json")
 	)
 
 

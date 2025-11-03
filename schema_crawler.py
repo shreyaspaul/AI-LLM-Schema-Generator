@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import gc
 import json
 import os
 import re
@@ -451,6 +452,8 @@ def infer_page_type_from_url(url: str) -> Dict[str, str]:
 def capture_screenshot(url: str, timeout: int = 30) -> Optional[str]:
 	"""Capture a screenshot of the page using Playwright and return as base64 string.
 	
+	Optimized for memory: reduced viewport size, JPEG compression, immediate cleanup.
+	
 	Works in cloud environments when:
 	- Browser binaries are installed: playwright install chromium --with-deps
 	- Required system dependencies are present (libnss3, libatk, etc.)
@@ -473,18 +476,23 @@ def capture_screenshot(url: str, timeout: int = 30) -> Optional[str]:
 					"--disable-accelerated-2d-canvas",
 					"--no-first-run",
 					"--no-zygote",
-					"--disable-gpu"
+					"--disable-gpu",
+					"--memory-pressure-off"  # Prevent aggressive memory usage
 				]
 			)
+			# Reduced viewport to save memory (1280x720 instead of 1920x1080)
 			context = browser.new_context(
-				viewport={"width": 1920, "height": 1080},
+				viewport={"width": 1280, "height": 720},
 				user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 			)
 			page = context.new_page()
 			page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
-			# Wait a bit for any dynamic content
-			page.wait_for_timeout(2000)
-			screenshot_bytes = page.screenshot(full_page=True, type="png")
+			# Reduced wait time to save memory
+			page.wait_for_timeout(1000)
+			# Use JPEG with quality=75 instead of PNG to reduce memory (smaller file size)
+			screenshot_bytes = page.screenshot(full_page=True, type="jpeg", quality=75)
+			page.close()
+			context.close()
 			browser.close()
 			
 			# Convert to base64
@@ -660,6 +668,10 @@ def crawl(
 
 	index_entries: List[Dict] = []
 	count = 0
+	
+	# Initialize manifest file path and dictionary - we'll write incrementally
+	manifest_path = os.path.join(output_dir, "manifest.v1.json")
+	manifest: Dict[str, Dict[str, Any]] = {}  # Will store {"/path": {schema}}
 
 	if not api_key:
 		log_error("OPENAI_API_KEY not set. Please set it via --api-key, .env file, or config.")
@@ -686,6 +698,9 @@ def crawl(
 
 		# Build structured outline for better LLM grounding
 		outline = build_structured_outline(html)
+		
+		# Save HTML reference for link extraction before we clear it
+		html_for_links = html
 
 		# Compute slug early for prompt dump path
 		page_slug = safe_slug_from_url(url)
@@ -1099,24 +1114,69 @@ def crawl(
 				indent=2,
 			)
 
+		# Extract path from URL for manifest key
+		# IMPORTANT: Use the exact URL as it appears in the queue (original crawled URL)
+		# This ensures the path matches what the user expects for their script logic
+		parsed_url = urlparse.urlparse(url)
+		# Get the full path including all segments, exactly as it appears in the URL
+		path = parsed_url.path or "/"
+		# Ensure path starts with / for consistency
+		if not path.startswith("/"):
+			path = "/" + path
+		
+		# Debug logging to verify path extraction (can be removed after testing)
+		log_info(f"Extracted path '{path}' from URL: {url}")
+		
+		# Store minimal index entry (no longer storing schema here, it's in manifest)
 		index_entries.append(
-			{"url": url, "slug": page_slug, "title": title, "schema_path": f"pages/{page_slug}.json"}
+			{"url": url, "slug": page_slug, "title": title, "path": path}
 		)
+		
+		# Add to manifest (key is path, value is schema)
+		manifest[path] = page_schema
+		
+		# Write manifest incrementally after each page to save memory
+		with open(manifest_path, "w", encoding="utf-8") as f:
+			json.dump(manifest, f, ensure_ascii=False, indent=2)
+		
+		# Delete individual page JSON file immediately to free memory
+		try:
+			if os.path.exists(page_path):
+				os.remove(page_path)
+		except Exception as e:
+			log_warn(f"Could not delete {page_path}: {e}")
+		
 		count += 1
-		log_info(f"✓ [{count}/{max_pages}] Saved: {url} -> {page_path}")
+		log_info(f"✓ [{count}/{max_pages}] Saved: {url} -> {path}")
 
-		# Enqueue links for BFS if we started from base
-		for link in iterate_links(html, url):
+		# Enqueue links for BFS if we started from base (extract links before clearing)
+		for link in iterate_links(html_for_links, url):
 			if link not in visited and (
 				allow_subdomains or (urlparse.urlparse(link).hostname == origin_host)
 			):
 				queue.append(link)
+		
+		# Clear large variables to free memory (after processing and link extraction)
+		html = None
+		html_for_links = None
+		text = None
+		screenshot_b64 = None
+		outline = None
+		page_schema = None
+		
+		# Force garbage collection after each page
+		gc.collect()
 
-	# Write master index
-	with open(os.path.join(output_dir, "index.json"), "w", encoding="utf-8") as f:
-		json.dump(index_entries, f, ensure_ascii=False, indent=2)
+	# Final manifest write (already written incrementally, but ensure it's complete)
+	with open(manifest_path, "w", encoding="utf-8") as f:
+		json.dump(manifest, f, ensure_ascii=False, indent=2)
+	
 	log_info("─" * 60)
-	log_info(f"Wrote index with {len(index_entries)} entries: {os.path.join(output_dir, 'index.json')}")
+	log_info(f"Wrote manifest with {len(manifest)} entries: {manifest_path}")
+	
+	# Final cleanup - clear manifest from memory
+	manifest.clear()
+	gc.collect()
 
 
 def main() -> None:
